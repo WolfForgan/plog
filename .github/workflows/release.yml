@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["tq5-*"]
   workflow_dispatch:
 
 permissions:
