@@ -1,0 +1,50 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    # plog is header-only, so a single platform produces a platform-independent package.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Smoke test (compile a translation unit that includes plog)
+        run: |
+          set -euo pipefail
+          cat > smoke.cpp <<'EOF'
+          #include <plog/Log.h>
+          #include <plog/Initializers/RollingFileInitializer.h>
+          int main() { plog::init(plog::debug, "smoke.log"); PLOGI << "ok"; return 0; }
+          EOF
+          g++ -std=c++17 -I include smoke.cpp -o /tmp/smoke
+          /tmp/smoke && rm -f smoke.log
+
+      - name: Package headers
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME:-manual}"
+          rm -rf out && mkdir -p out/plog
+          cp -r include out/plog/include
+          cp LICENSE README.md out/plog/
+          ( cd out && zip -qr "plog-headers.zip" plog )
+          ( cd out && tar -czf "plog-headers.tar.gz" plog )
+          unzip -l out/plog-headers.zip | tail -3
+          sha256sum out/plog-headers.zip out/plog-headers.tar.gz
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            out/plog-headers.zip out/plog-headers.tar.gz \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "plog $GITHUB_REF_NAME" \
+            --notes "Prebuilt plog headers (header-only, platform independent)."
