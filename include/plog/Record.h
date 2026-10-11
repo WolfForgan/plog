@@ -159,11 +159,13 @@ namespace plog
 #   endif
         }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
         Record& operator<<(const QStringRef& data)
         {
             QString qstr;
             return *this << qstr.append(data);
         }
+#endif
 #endif
 
         template<typename T>
