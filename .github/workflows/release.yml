@@ -1,0 +1,86 @@
+name: release
+
+on:
+  push:
+    tags: ["tq5-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SMOKE_CPP: |
+    #include <plog/Log.h>
+    #include <plog/Init.h>
+    #include <plog/Appenders/RollingFileAppender.h>
+    #include <plog/Formatters/TxtFormatter.h>
+    int main() {
+        static plog::RollingFileAppender<plog::TxtFormatter> appender("smoke.log");
+        plog::init(plog::debug, &appender);
+        PLOGI << "smoke";
+        return 0;
+    }
+
+jobs:
+  # plog is header-only, so "building" means proving the headers compile on every
+  # supported toolchain. The published package itself is platform independent.
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile smoke test (unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          printf '%s' "$SMOKE_CPP" > smoke.cpp
+          "${CXX:-c++}" -std=c++17 -I include -Wall smoke.cpp -o smoke
+          ./smoke && rm -f smoke.log
+
+      - name: Setup MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Compile smoke test (windows, x86 to match Trojan-Qt5)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:SMOKE_CPP | Out-File -Encoding ascii smoke.cpp
+          cl /nologo /std:c++17 /EHsc /I include /DWIN32 smoke.cpp /Fe:smoke.exe
+          .\smoke.exe; if (-not $?) { exit 1 }
+          Remove-Item -Force smoke.log -ErrorAction SilentlyContinue
+
+  package:
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package headers
+        run: |
+          set -euo pipefail
+          rm -rf out && mkdir -p out/plog
+          cp -r include out/plog/include
+          cp LICENSE README.md out/plog/
+          ( cd out && zip -qr plog-headers.zip plog )
+          ( cd out && tar -czf plog-headers.tar.gz plog )
+          unzip -l out/plog-headers.zip | tail -3
+          ( cd out && sha256sum plog-headers.zip plog-headers.tar.gz > SHA256SUMS.txt )
+          cat out/SHA256SUMS.txt
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            out/plog-headers.zip out/plog-headers.tar.gz out/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "plog $GITHUB_REF_NAME" \
+            --notes "Header-only plog package (platform independent): \`plog/include/plog/*.h\`."

@@ -349,6 +349,7 @@ namespace plog
         }
 #   endif
 #endif
+#endif
 
         template<typename T>
         Record& operator<<(const T& data)
