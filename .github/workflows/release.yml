@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ["tq5-*"]
+    tags: ["trojan-qt5-deps-*"]
   workflow_dispatch:
 
 permissions:
